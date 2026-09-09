@@ -1,7 +1,7 @@
 import "server-only";
 
-import { neon } from "@neondatabase/serverless";
-import { drizzle } from "drizzle-orm/neon-http";
+import { Pool } from "@neondatabase/serverless";
+import { drizzle } from "drizzle-orm/neon-serverless";
 
 import * as schema from "@/lib/db/schema";
 
@@ -20,6 +20,8 @@ export function getDb() {
   const connectionString = process.env.DATABASE_URL;
   if (!connectionString) throw new DatabaseNotConfiguredError();
 
-  database = drizzle(neon(connectionString), { schema });
+  // El cliente WebSocket permite transacciones reales en Neon. Los snapshots
+  // de borrador/publicación deben escribirse de forma atómica.
+  database = drizzle({ client: new Pool({ connectionString }), schema });
   return database;
 }

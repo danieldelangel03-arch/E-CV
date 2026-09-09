@@ -1,10 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
 
 import { loadEnvConfig } from "@next/env";
-import { neon } from "@neondatabase/serverless";
+import { Pool } from "@neondatabase/serverless";
 import bcrypt from "bcryptjs";
 import { desc, eq } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/neon-http";
+import { drizzle } from "drizzle-orm/neon-serverless";
 import { z } from "zod";
 
 import type { ProfileContent } from "../src/lib/content";
@@ -192,13 +192,16 @@ async function seed() {
     throw new Error("SEED_ADMIN_EMAIL no puede ser el correo del estudiante inicial.");
   }
 
-  const db = drizzle(neon(databaseUrl), {
+  const pool = new Pool({ connectionString: databaseUrl });
+  const db = drizzle({
+    client: pool,
     schema: { users, profiles, profileVersions, profileCurrent },
   });
   const created: string[] = [];
   const preserved: string[] = [];
 
-  await db.transaction(async (tx) => {
+  try {
+    await db.transaction(async (tx) => {
     const [existingAdmin] = await tx
       .select({ id: users.id, role: users.role })
       .from(users)
@@ -338,7 +341,11 @@ async function seed() {
       });
     }
     created.push("snapshots publicado y borrador de Daniel");
-  });
+    });
+
+  } finally {
+    await pool.end();
+  }
 
   console.log(
     `Seed completado. Creados: ${created.length ? created.join(", ") : "ninguno"}. ` +
