@@ -28,6 +28,7 @@ export type EditableProfile = {
   userId: string;
   email: string;
   slug: string;
+  origin: "auto" | "manual";
   isActive: boolean;
   draftVersionId: string | null;
   publishedVersionId: string | null;
@@ -48,6 +49,7 @@ type ProfileRecord = {
   id: string;
   userId: string;
   slug: string;
+  origin: "auto" | "manual";
   email: string;
   isActive: boolean;
 };
@@ -62,6 +64,7 @@ async function getProfileRecord(slug: string): Promise<ProfileRecord | null> {
       id: profiles.id,
       userId: profiles.userId,
       slug: profiles.slug,
+      origin: profiles.origin,
       email: users.email,
       isActive: users.isActive,
     })
@@ -118,6 +121,7 @@ export async function getEditableProfileBySlug(
     userId: profile.userId,
     email: profile.email,
     slug: profile.slug,
+    origin: profile.origin,
     isActive: profile.isActive,
     draftVersionId: pointers?.draftVersionId ?? null,
     publishedVersionId: pointers?.publishedVersionId ?? null,
@@ -365,6 +369,7 @@ export type AdminProfileSummary = {
   id: string;
   userId: string;
   slug: string;
+  origin: "auto" | "manual";
   email: string;
   isActive: boolean;
   status: "empty" | "draft" | "published";
@@ -377,6 +382,7 @@ export async function listAdminProfiles(): Promise<AdminProfileSummary[]> {
       id: profiles.id,
       userId: profiles.userId,
       slug: profiles.slug,
+      origin: profiles.origin,
       email: users.email,
       isActive: users.isActive,
       draftVersionId: profileCurrent.draftVersionId,
@@ -397,6 +403,7 @@ export async function listAdminProfiles(): Promise<AdminProfileSummary[]> {
         id: row.id,
         userId: row.userId,
         slug: row.slug,
+        origin: row.origin,
         email: row.email,
         isActive: row.isActive,
         status: publicProfileStatus({
@@ -432,7 +439,7 @@ export async function createStudent(input: {
       role: "student",
       isActive: true,
     });
-    await tx.insert(profiles).values({ id: profileId, userId, slug: input.slug });
+    await tx.insert(profiles).values({ id: profileId, userId, slug: input.slug, origin: "manual" });
     await tx.insert(profileCurrent).values({ profileId, draftVersionId: null, publishedVersionId: null });
   });
 
@@ -442,6 +449,108 @@ export async function createStudent(input: {
     subjectEmail: email,
     subjectSlug: input.slug,
   });
+}
+
+export class AccountConflictError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AccountConflictError";
+  }
+}
+
+export async function registerStudent(input: {
+  email: string;
+  password: string;
+  slug: string;
+  fullName: string;
+  career: string;
+}) {
+  const email = input.email.trim().toLowerCase();
+  const slug = input.slug.trim().toLowerCase();
+  const passwordHash = await bcrypt.hash(input.password, 12);
+
+  try {
+    const created = await getDb().transaction(async (tx) => {
+      const [sameEmail] = await tx.select({ id: users.id }).from(users).where(eq(users.email, email)).limit(1);
+      if (sameEmail) throw new AccountConflictError("Ya existe una cuenta con ese correo.");
+      const [sameSlug] = await tx.select({ id: profiles.id }).from(profiles).where(eq(profiles.slug, slug)).limit(1);
+      if (sameSlug) throw new AccountConflictError("Ese slug ya estÃ¡ en uso. Elige otro.");
+
+      const userId = randomUUID();
+      const profileId = randomUUID();
+      const draftId = randomUUID();
+      const content = parseProfileContent({
+        ...cloneEmptyContent(),
+        fullName: input.fullName,
+        career: input.career,
+        contact: { email, phone: "", location: "" },
+      });
+
+      await tx.insert(users).values({ id: userId, email, passwordHash, role: "student", isActive: true });
+      await tx.insert(profiles).values({ id: profileId, userId, slug, origin: "auto" });
+      await tx.insert(profileVersions).values({
+        id: draftId,
+        profileId,
+        sequence: 1,
+        kind: "draft",
+        content,
+        contentHash: hashContent(content),
+        sourceVersionId: null,
+        createdBy: userId,
+      });
+      await tx.insert(profileCurrent).values({ profileId, draftVersionId: draftId, publishedVersionId: null });
+      return { userId, slug };
+    });
+
+    await saveAudit({
+      actorUserId: created.userId,
+      action: "student.self_registered",
+      subjectEmail: email,
+      subjectSlug: created.slug,
+      metadata: { origin: "auto" },
+    });
+    return created;
+  } catch (error) {
+    if (error instanceof AccountConflictError) throw error;
+    const code = typeof error === "object" && error && "code" in error ? error.code : undefined;
+    if (code === "23505") throw new AccountConflictError("El correo o slug ya estÃ¡ en uso.");
+    throw error;
+  }
+}
+
+export type PublicShowcaseProfile = {
+  slug: string;
+  fullName: string;
+  career: string;
+  avatarAssetId: string | null;
+};
+
+export async function listPublicProfileShowcase(limit = 4): Promise<PublicShowcaseProfile[]> {
+  const rows = await getDb()
+    .select({ slug: profiles.slug, content: profileVersions.content })
+    .from(profiles)
+    .innerJoin(users, eq(profiles.userId, users.id))
+    .innerJoin(profileCurrent, eq(profileCurrent.profileId, profiles.id))
+    .innerJoin(profileVersions, eq(profileVersions.id, profileCurrent.publishedVersionId))
+    .where(and(eq(users.isActive, true), eq(profileVersions.kind, "published")))
+    .orderBy(desc(profileVersions.publishedAt))
+    .limit(Math.max(1, Math.min(limit, 4)));
+
+  return rows.map((row) => ({
+    slug: row.slug,
+    fullName: row.content.fullName,
+    career: row.content.career,
+    avatarAssetId: row.content.avatarAssetId,
+  }));
+}
+
+export async function isSlugAvailable(slug: string) {
+  const [existing] = await getDb()
+    .select({ id: profiles.id })
+    .from(profiles)
+    .where(eq(profiles.slug, slug.trim().toLowerCase()))
+    .limit(1);
+  return !existing;
 }
 
 async function getStudentById(userId: string) {
@@ -540,6 +649,7 @@ export async function getBackupData() {
       return {
         slug: profile.slug,
         userEmail: userRows.find((user) => user.id === profile.userId)?.email ?? "",
+        origin: profile.origin,
         draft: draft?.content ?? null,
         published: published?.content ?? null,
         publishedAt: published?.publishedAt?.toISOString() ?? null,
@@ -549,7 +659,7 @@ export async function getBackupData() {
 
   return {
     format: "eprofile-backup",
-    schemaVersion: 1,
+    schemaVersion: 2,
     createdAt: new Date().toISOString(),
     users: userRows.map((user) => ({
       email: user.email,

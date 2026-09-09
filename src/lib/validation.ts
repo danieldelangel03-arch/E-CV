@@ -154,6 +154,11 @@ export const createStudentSchema = z.object({
 
 export const accountIdSchema = z.string().uuid("Cuenta no válida.");
 
+export const registerStudentSchema = createStudentSchema.extend({
+  fullName: z.string().trim().min(2).max(120),
+  career: z.string().trim().min(2).max(180),
+});
+
 export function isSafeRelativePath(value: string | undefined): value is string {
   return Boolean(value && value.startsWith("/") && !value.startsWith("//"));
 }

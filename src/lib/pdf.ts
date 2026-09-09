@@ -61,7 +61,7 @@ class CvCanvas {
     } else {
       this.page.drawRectangle({ x: MARGIN, y: PAGE_HEIGHT - 133, width: 86, height: 5, color: yellow });
     }
-    this.page.drawText(printable(this.content.fullName || "EProfile"), {
+    this.page.drawText(printable(this.content.fullName || "E-CV"), {
       x: MARGIN,
       y: PAGE_HEIGHT - 70,
       size: 24,
@@ -156,8 +156,8 @@ class CvCanvas {
 
 export async function createCvPdf(content: ProfileContent, template: PdfTemplate) {
   const document = await PDFDocument.create();
-  document.setTitle(`${content.fullName || "EProfile"} - CV`);
-  document.setAuthor("EProfile");
+  document.setTitle(`${content.fullName || "E-CV"} - CV`);
+  document.setAuthor("E-CV");
   document.setSubject("Curriculum vitae generado desde el perfil publicado");
   const regular = await document.embedFont(StandardFonts.Helvetica);
   const bold = await document.embedFont(StandardFonts.HelveticaBold);

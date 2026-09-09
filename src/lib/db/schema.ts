@@ -22,6 +22,7 @@ const bytea = customType<{ data: Buffer; driverData: Buffer }>({
 });
 
 export const userRoleEnum = pgEnum("user_role", ["admin", "student"]);
+export const profileOriginEnum = pgEnum("profile_origin", ["auto", "manual"]);
 export const profileVersionKindEnum = pgEnum("profile_version_kind", ["draft", "published"]);
 
 export const users = pgTable("users", {
@@ -57,6 +58,7 @@ export const profiles = pgTable("profiles", {
     .unique()
     .references(() => users.id, { onDelete: "cascade" }),
   slug: varchar("slug", { length: 80 }).notNull().unique(),
+  origin: profileOriginEnum("origin").notNull().default("manual"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

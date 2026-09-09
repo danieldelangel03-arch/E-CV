@@ -7,9 +7,11 @@ import { redirect } from "next/navigation";
 import { assertSameOrigin, createSession, revokeCurrentSession } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { profiles, users } from "@/lib/db/schema";
-import { isSafeRelativePath, loginSchema } from "@/lib/validation";
+import { AccountConflictError, registerStudent } from "@/lib/profiles";
+import { isSafeRelativePath, loginSchema, registerStudentSchema } from "@/lib/validation";
 
 export type LoginState = { error?: string };
+export type RegisterState = { error?: string };
 
 export async function loginAction(_previousState: LoginState, formData: FormData): Promise<LoginState> {
   await assertSameOrigin();
@@ -48,4 +50,25 @@ export async function logoutAction() {
   await assertSameOrigin();
   await revokeCurrentSession();
   redirect("/");
+}
+
+export async function registerAction(_previousState: RegisterState, formData: FormData): Promise<RegisterState> {
+  await assertSameOrigin();
+  const parsed = registerStudentSchema.safeParse({
+    fullName: formData.get("fullName"),
+    email: formData.get("email"),
+    password: formData.get("password"),
+    career: formData.get("career"),
+    slug: formData.get("slug"),
+  });
+  if (!parsed.success) return { error: "Revisa los datos: usa un correo vÃ¡lido, slug vÃ¡lido y contraseÃ±a de 12 caracteres." };
+
+  try {
+    const account = await registerStudent({ ...parsed.data, email: parsed.data.email.toLowerCase() });
+    await createSession(account.userId);
+    redirect(`/${account.slug}/admin`);
+  } catch (error) {
+    if (error instanceof AccountConflictError) return { error: error.message };
+    throw error;
+  }
 }

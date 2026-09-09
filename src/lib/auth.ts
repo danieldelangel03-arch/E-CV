@@ -1,6 +1,6 @@
 import "server-only";
 
-import { createHmac, randomBytes, randomUUID } from "node:crypto";
+import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 
 import { and, eq, gt, isNull } from "drizzle-orm";
 import { cookies, headers } from "next/headers";
@@ -47,12 +47,47 @@ function hashSessionToken(token: string) {
   return createHmac("sha256", authSecret()).update(token).digest("hex");
 }
 
+type JwtClaims = { sub: string; sid: string; exp: number };
+
+function signJwtPart(value: string) {
+  return createHmac("sha256", authSecret()).update(value).digest("base64url");
+}
+
+function createJwt(claims: JwtClaims) {
+  const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url");
+  const payload = Buffer.from(JSON.stringify(claims)).toString("base64url");
+  const unsigned = `${header}.${payload}`;
+  return `${unsigned}.${signJwtPart(unsigned)}`;
+}
+
+function parseJwt(token: string): JwtClaims | null {
+  const [header, payload, signature, ...rest] = token.split(".");
+  if (!header || !payload || !signature || rest.length) return null;
+  const expected = Buffer.from(signJwtPart(`${header}.${payload}`));
+  const received = Buffer.from(signature);
+  if (expected.length !== received.length || !timingSafeEqual(expected, received)) return null;
+
+  try {
+    const claims = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as Partial<JwtClaims>;
+    if (
+      typeof claims.sub !== "string" ||
+      typeof claims.sid !== "string" ||
+      typeof claims.exp !== "number" ||
+      claims.exp <= Math.floor(Date.now() / 1000)
+    ) return null;
+    return { sub: claims.sub, sid: claims.sid, exp: claims.exp };
+  } catch {
+    return null;
+  }
+}
+
 export async function createSession(userId: string) {
-  const token = randomBytes(32).toString("base64url");
+  const sessionId = randomUUID();
   const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
+  const token = createJwt({ sub: userId, sid: sessionId, exp: Math.floor(expiresAt.getTime() / 1000) });
 
   await getDb().insert(sessions).values({
-    id: randomUUID(),
+    id: sessionId,
     userId,
     tokenHash: hashSessionToken(token),
     expiresAt,
@@ -72,6 +107,8 @@ export async function createSession(userId: string) {
 export async function getCurrentUser(): Promise<CurrentUser | null> {
   const token = (await cookies()).get(sessionCookieName())?.value;
   if (!token) return null;
+  const claims = parseJwt(token);
+  if (!claims) return null;
 
   const [session] = await getDb()
     .select({
@@ -86,6 +123,8 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
     .where(
       and(
         eq(sessions.tokenHash, hashSessionToken(token)),
+        eq(sessions.id, claims.sid),
+        eq(sessions.userId, claims.sub),
         isNull(sessions.revokedAt),
         gt(sessions.expiresAt, new Date()),
         eq(users.isActive, true),

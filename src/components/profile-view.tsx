@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import {
+  ArrowLeft,
   ArrowUpRight,
   Award,
   BookOpen,
@@ -78,9 +79,7 @@ export function ProfileView({ slug, content, preview = false, avatarUrl }: Profi
       <section className="profile-hero">
         <div className="profile-hero__grid" />
         <div className="profile-shell profile-hero__content">
-          <Link className="brand brand--light" href="/" aria-label="EProfile, inicio">
-            <span className="brand-mark">E</span><span>Profile</span>
-          </Link>
+          <div className="profile-hero__nav"><Link className="brand brand--light" href="/" aria-label="E-CV, inicio"><span className="brand-mark">E</span><span>E-CV</span></Link><Link className="profile-back-link no-print" href="/"><ArrowLeft size={16} /> Ir al inicio</Link></div>
           <div className="profile-hero__body">
             <Avatar content={content} src={avatarUrl} />
             <div className="profile-identity">
@@ -188,7 +187,7 @@ export function ProfileView({ slug, content, preview = false, avatarUrl }: Profi
           {content.links.length > 0 && (
             <section className="side-card compact-list"><div className="section-heading section-heading--compact"><span className="section-icon"><LinkIcon size={18} /></span><div><p className="eyebrow">En línea</p><h2>Enlaces</h2></div></div>{content.links.map((link, index) => <a key={`${link.url}-${index}`} href={link.url} target="_blank" rel="noreferrer" className="text-link">{link.label || link.url}<ArrowUpRight size={15} /></a>)}</section>
           )}
-          {!preview && <QrShareCard slug={slug} profileUrl={profileUrl} name={content.fullName} />}
+          {!preview && <QrShareCard slug={slug} profileUrl={profileUrl} name={content.fullName} career={content.career} avatarUrl={avatarUrl} />}
           {!preview && (
             <section className="download-card no-print">
               <FileText size={21} />

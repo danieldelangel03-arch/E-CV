@@ -1,7 +1,7 @@
 "use client";
 
-import { Eye, FileUp, ImagePlus, Plus, Save, Send, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { CheckCircle2, Eye, FileUp, ImagePlus, Plus, Save, Send, Trash2 } from "lucide-react";
+import { useRef, useState } from "react";
 
 import type {
   Achievement,
@@ -62,6 +62,29 @@ export function ProfileEditor({
   canPublish,
 }: ProfileEditorProps) {
   const [content, setContent] = useState<ProfileContent>(() => structuredClone(initialContent));
+  const [pendingAction, setPendingAction] = useState<"save" | "publish" | null>(null);
+  const [feedback, setFeedback] = useState<{ tone: "success" | "error"; message: string } | null>(null);
+  const formRef = useRef<HTMLFormElement>(null);
+
+  async function runProfileAction(action: ProfileAction, kind: "save" | "publish") {
+    const form = formRef.current;
+    if (!form) return;
+    setPendingAction(kind);
+    setFeedback(null);
+    try {
+      await action(new FormData(form));
+      setFeedback({ tone: "success", message: kind === "publish" ? "Perfil publicado. Tu E-CV pública ya muestra esta versión." : "Borrador guardado correctamente. Aún no es visible al público." });
+    } catch (error) {
+      setFeedback({ tone: "error", message: error instanceof Error ? error.message : "No se pudo completar la acción. Inténtalo de nuevo." });
+    } finally {
+      setPendingAction(null);
+    }
+  }
+
+  function saveFromSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    void runProfileAction(saveAction, "save");
+  }
 
   function setEducation(index: number, field: keyof Education, value: string) {
     setContent((previous) => ({
@@ -107,17 +130,18 @@ export function ProfileEditor({
   }
 
   return (
-    <form className="profile-editor" action={saveAction} encType="multipart/form-data">
+    <form ref={formRef} className="profile-editor" onSubmit={saveFromSubmit} encType="multipart/form-data">
       <input type="hidden" name="content" value={JSON.stringify(content)} />
       <div className="editor-toolbar">
-        <div><p className="eyebrow">Contenido privado</p><h1>Edita tu EProfile</h1><p>Guarda los cambios como borrador. Solo la publicación modifica tu página pública.</p></div>
+        <div><p className="eyebrow">Contenido privado</p><h1>Edita tu E-CV</h1><p>Guarda los cambios como borrador. Solo la publicación modifica tu página pública.</p></div>
         <div className="editor-toolbar__actions">
           <a className="button button--secondary" href={previewHref}><Eye size={16} /> Previsualizar</a>
-          <button type="submit" className="button button--secondary"><Save size={16} /> Guardar borrador</button>
-          <button type="submit" formAction={publishAction} className="button button--primary" disabled={!canPublish}><Send size={16} /> Publicar</button>
+          <button type="submit" className="button button--secondary" disabled={pendingAction !== null}><Save size={16} /> {pendingAction === "save" ? "Guardando…" : "Guardar borrador"}</button>
+          <button type="button" onClick={() => void runProfileAction(publishAction, "publish")} className="button button--primary" disabled={!canPublish || pendingAction !== null}><Send size={16} /> {pendingAction === "publish" ? "Publicando…" : "Publicar"}</button>
         </div>
       </div>
       {!canPublish && <p className="editor-notice">Para publicar, completa como mínimo tu nombre y carrera.</p>}
+      {feedback && <p className={`action-notice action-notice--${feedback.tone}`} role="status"><CheckCircle2 size={16} /> {feedback.message}</p>}
 
       <section className="editor-section">
         <div className="editor-section__heading"><span>01</span><div><p className="eyebrow">Identidad</p><h2>Información principal</h2></div></div>
@@ -187,7 +211,7 @@ export function ProfileEditor({
         </div>
       </section>
 
-      <footer className="editor-footer"><p><FileUp size={16} /> El borrador está aislado de la página pública. Al publicar se crea un snapshot nuevo.</p><div><a className="button button--secondary" href={previewHref}><Eye size={16} /> Previsualizar</a><button type="submit" className="button button--secondary"><Save size={16} /> Guardar borrador</button><button type="submit" formAction={publishAction} className="button button--primary" disabled={!canPublish}><Send size={16} /> Publicar</button></div></footer>
+      <footer className="editor-footer"><p><FileUp size={16} /> El borrador está aislado de la página pública. Al publicar se crea un snapshot nuevo.</p><div><a className="button button--secondary" href={previewHref}><Eye size={16} /> Previsualizar</a><button type="submit" className="button button--secondary" disabled={pendingAction !== null}><Save size={16} /> {pendingAction === "save" ? "Guardando…" : "Guardar borrador"}</button><button type="button" onClick={() => void runProfileAction(publishAction, "publish")} className="button button--primary" disabled={!canPublish || pendingAction !== null}><Send size={16} /> {pendingAction === "publish" ? "Publicando…" : "Publicar"}</button></div></footer>
     </form>
   );
 }

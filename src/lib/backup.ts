@@ -23,6 +23,7 @@ const backupUserSchema = z.object({
 const backupProfileSchema = z.object({
   slug: slugSchema,
   userEmail: z.string().trim().email().max(320).transform((value) => value.toLowerCase()),
+  origin: z.enum(["auto", "manual"]).optional().default("manual"),
   draft: profileContentSchema.nullable(),
   published: profileContentSchema.nullable(),
   publishedAt: z.string().datetime().nullable(),
@@ -39,7 +40,7 @@ const backupAssetSchema = z.object({
 
 export const backupSchema = z.object({
   format: z.literal("eprofile-backup"),
-  schemaVersion: z.literal(1),
+  schemaVersion: z.union([z.literal(1), z.literal(2)]),
   createdAt: z.string().datetime(),
   users: z.array(backupUserSchema).max(1_000),
   profiles: z.array(backupProfileSchema).max(1_000),
@@ -150,7 +151,9 @@ export async function importBackup(raw: unknown, actor: CurrentUser) {
 
       const profileId = bySlug?.id ?? byUser?.id ?? randomUUID();
       if (!bySlug && !byUser) {
-        await tx.insert(profiles).values({ id: profileId, userId, slug: backupProfile.slug });
+        await tx.insert(profiles).values({ id: profileId, userId, slug: backupProfile.slug, origin: backupProfile.origin });
+      } else {
+        await tx.update(profiles).set({ origin: backupProfile.origin, updatedAt: new Date() }).where(eq(profiles.id, profileId));
       }
 
       const assetsForProfile = backup.assets.filter((asset) => asset.profileSlug === backupProfile.slug);

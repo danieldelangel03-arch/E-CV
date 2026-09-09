@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 
 import { assertSameOrigin, requireAdmin } from "@/lib/auth";
 import { importBackup } from "@/lib/backup";
@@ -21,6 +22,7 @@ export async function createStudentAction(formData: FormData) {
   });
   await createStudent({ ...parsed, email: parsed.email.toLowerCase(), actor });
   refreshAdmin();
+  redirect("/admin?notice=created");
 }
 
 export async function setStudentActiveAction(formData: FormData) {
@@ -30,6 +32,7 @@ export async function setStudentActiveAction(formData: FormData) {
   const isActive = formData.get("isActive") === "true";
   await setStudentActive({ userId, isActive, actor });
   refreshAdmin();
+  redirect(`/admin?notice=${isActive ? "activated" : "deactivated"}`);
 }
 
 export async function resetStudentPasswordAction(formData: FormData) {
@@ -39,6 +42,7 @@ export async function resetStudentPasswordAction(formData: FormData) {
   const password = passwordSchema.parse(formData.get("password"));
   await resetStudentPassword({ userId, password, actor });
   refreshAdmin();
+  redirect("/admin?notice=password-reset");
 }
 
 export async function deleteStudentAction(formData: FormData) {
@@ -47,6 +51,7 @@ export async function deleteStudentAction(formData: FormData) {
   const userId = accountIdSchema.parse(formData.get("userId"));
   await deleteStudent({ userId, actor });
   refreshAdmin();
+  redirect("/admin?notice=deleted");
 }
 
 export async function importBackupAction(formData: FormData) {
@@ -64,4 +69,5 @@ export async function importBackupAction(formData: FormData) {
   }
   await importBackup(raw, actor);
   refreshAdmin();
+  redirect("/admin?notice=backup-imported");
 }

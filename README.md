@@ -1,4 +1,4 @@
-# EProfile
+# E-CV (EProfile)
 
 EProfile es una plataforma de tarjetas profesionales digitales para estudiantes. Combina un perfil público permanente, un área privada de edición y una administración global de cuentas.
 
@@ -9,7 +9,7 @@ La separación entre borrador y publicación es central: la página pública, el
 La plataforma cubre tres roles:
 
 - Visitante: consulta perfiles publicados y activos en `/<slug>`.
-- Estudiante: administra exclusivamente su propio perfil desde `/<slug>/admin`.
+- Estudiante: se auto-registra en `/registro` o recibe una cuenta manual; administra exclusivamente su propio perfil desde `/<slug>/admin`.
 - Administrador: gestiona estudiantes, contenidos y respaldos desde `/admin`.
 
 Los slugs son únicos y permanentes. El valor `admin` está reservado. Para publicar se exigen, como mínimo, nombre y carrera.
@@ -58,7 +58,8 @@ erDiagram
   PERFILES {
     uuid id PK
     uuid usuario_id FK
-    varchar slug UK
+  varchar slug UK
+  enum origen
   }
   VERSIONES_DE_PERFIL {
     uuid id PK
@@ -108,7 +109,7 @@ Cada versión guarda, en su JSON de contenido, nombre, carrera, reseña, contact
 - Drizzle ORM y Drizzle Kit para el modelo y las migraciones.
 - Zod para validar datos de formularios en servidor.
 - `bcryptjs` con factor de trabajo 12 para las contraseñas.
-- Sesiones persistidas, tokens aleatorios con HMAC-SHA-256 y cookies HTTP-only.
+- JWT HS256 en cookie HTTP-only, con sesiones persistidas para revocación inmediata y control por rol.
 - `pdf-lib` para los CV en plantillas `classic` y `modern`.
 - `qrcode` para QR PNG y `lucide-react` para iconografía.
 - ESLint para revisión estática.
@@ -117,6 +118,9 @@ No se usa `localStorage` como reemplazo de la base de datos. Si falta `DATABASE_
 
 ## Rutas y recursos
 
+- `/`: landing pública con registro, inicio de sesión, pasos y vitrina de E-CVs publicadas.
+- `/registro`: auto-registro con validación de correo y disponibilidad del slug en tiempo real.
+- `/login`: inicio de sesión unificado para estudiante y administrador.
 - `/<slug>`: perfil público; requiere cuenta activa y una versión publicada.
 - `/<slug>/admin`: edición del propietario; el administrador puede editar cualquier perfil.
 - `/admin`: administración de cuentas, perfiles y respaldos.
@@ -131,7 +135,8 @@ Los recursos públicos responden con `404` si el perfil no está publicado o la 
 ## Seguridad y reglas de acceso
 
 - Las contraseñas deben tener al menos 12 caracteres y se almacenan únicamente como hash.
-- Las sesiones duran 14 días, se guardan en base de datos y pueden revocarse. La cookie usa `HttpOnly`, `SameSite=Lax` y `Secure` en producción.
+- El JWT dura 14 días, se guarda en una cookie `HttpOnly`, `SameSite=Lax` y `Secure` en producción. Su `sid` se valida contra la sesión persistida, por lo que puede revocarse al cerrar sesión, desactivar una cuenta o restablecer una contraseña.
+- Cada perfil registra su origen: `auto` para auto-registro y `manual` para altas administrativas.
 - Un estudiante sólo recibe acceso a su perfil; el rol administrador puede gestionar todos.
 - Desactivar a un estudiante revoca sus sesiones y retira su perfil de la vista pública.
 - La publicación valida nombre y carrera. La consulta pública lee exclusivamente la instantánea marcada como publicada.
@@ -151,7 +156,7 @@ Los recursos públicos responden con `404` si el perfil no está publicado o la 
 4. Use bases independientes para desarrollo y producción.
 5. Nunca confirme `.env.local`, la cadena de conexión ni contraseñas en Git.
 
-La aplicación usa el controlador HTTP serverless de Neon. No existe una base local de respaldo ni se generan datos simulados si la conexión falta.
+La aplicación usa el cliente WebSocket serverless de Neon para mantener transacciones reales. No existe una base local de respaldo ni se generan datos simulados si la conexión falta.
 
 ## Variables de entorno
 
@@ -164,13 +169,16 @@ NEXT_PUBLIC_APP_URL=http://localhost:3000
 SEED_ADMIN_EMAIL=
 SEED_ADMIN_PASSWORD=
 SEED_STUDENT_PASSWORD=
+SEED_AUTO_STUDENT_EMAIL=
+SEED_AUTO_STUDENT_PASSWORD=
 ```
 
 - `DATABASE_URL`: cadena PostgreSQL de Neon.
 - `AUTH_SECRET`: secreto de al menos 32 caracteres utilizado para el hash de sesión. Puede generarse con `node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"`.
 - `NEXT_PUBLIC_APP_URL`: origen canónico sin barra final; el QR y la vCard se basan en este valor.
 - `SEED_ADMIN_EMAIL` y `SEED_ADMIN_PASSWORD`: identidad elegida para el administrador inicial.
-- `SEED_STUDENT_PASSWORD`: contraseña inicial del perfil de Daniel.
+- `SEED_STUDENT_PASSWORD`: contraseña inicial del perfil manual de Daniel.
+- `SEED_AUTO_STUDENT_EMAIL` y `SEED_AUTO_STUDENT_PASSWORD`: identidad del perfil de Ana, marcado como auto-registro.
 
 La semilla necesita `DATABASE_URL` y las tres variables `SEED_*`. `AUTH_SECRET` es indispensable para iniciar sesión, pero no para ejecutar la semilla. No hay credenciales de demostración ni contraseñas predeterminadas en el repositorio.
 
@@ -192,6 +200,7 @@ La semilla es repetible y conservadora:
 
 - Crea un administrador usando `SEED_ADMIN_EMAIL` y `SEED_ADMIN_PASSWORD` si todavía no existe.
 - Crea el estudiante Daniel Del Angel Aranda en `/daniel-del-angel`, con correo `daniel.delangel03@iest.edu.mx` y la contraseña de `SEED_STUDENT_PASSWORD`.
+- Crea a Ana Torres Ramírez en `/ana-torres`, con origen `auto`, correo y contraseña de `SEED_AUTO_STUDENT_*` y datos de demo publicados.
 - Crea snapshots separados de borrador y publicado para Daniel.
 - Conserva usuarios, contenido, snapshots y contraseñas existentes.
 - Se detiene ante conflictos de rol o de slug para no alterar datos ajenos.
@@ -227,10 +236,11 @@ Si no desea cargar la semilla, complete las variables obligatorias, ejecute `npm
 
 ## Cuentas de prueba
 
-No se incluyen secretos ni contraseñas en el código.
+No se incluyen secretos ni contraseñas en el código. El entorno local documenta las tres credenciales utilizadas para la demostración.
 
 - Administrador: correo de `SEED_ADMIN_EMAIL` y contraseña de `SEED_ADMIN_PASSWORD`.
-- Estudiante inicial: `daniel.delangel03@iest.edu.mx` y contraseña de `SEED_STUDENT_PASSWORD`.
+- Estudiante manual: `daniel.delangel03@iest.edu.mx` y contraseña de `SEED_STUDENT_PASSWORD`.
+- Estudiante auto-registrada: correo de `SEED_AUTO_STUDENT_EMAIL` y contraseña de `SEED_AUTO_STUDENT_PASSWORD`.
 
 Cambie las contraseñas iniciales antes de compartir una instancia o de usarla en producción.
 
@@ -239,10 +249,12 @@ Cambie las contraseñas iniciales antes de compartir una instancia o de usarla e
 Esta es una guía de validación manual por entorno; las casillas no indican que una prueba se haya ejecutado automáticamente.
 
 - [ ] Una visita a `/<slug>` muestra contenido sólo para cuentas activas con versión publicada.
+- [ ] Una persona puede crear una cuenta desde `/registro`, elegir un slug disponible y aterrizar en su panel privado.
 - [ ] Guardar un borrador no altera el perfil público, PDF, QR ni vCard hasta publicar.
 - [ ] Publicar sin nombre o carrera es rechazado en el servidor.
 - [ ] Un estudiante no puede leer ni modificar datos de otro estudiante.
 - [ ] Un administrador puede crear, activar, desactivar, eliminar y restablecer cuentas.
+- [ ] El administrador identifica el origen `auto` o `manual` de cada perfil.
 - [ ] Desactivar una cuenta revoca sesiones y oculta el perfil público.
 - [ ] El administrador puede editar y publicar contenido de cualquier estudiante.
 - [ ] La exportación e importación de respaldos valida el formato antes de cambiar datos.

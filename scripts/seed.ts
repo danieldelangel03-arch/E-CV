@@ -7,7 +7,7 @@ import { desc, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/neon-serverless";
 import { z } from "zod";
 
-import type { ProfileContent } from "../src/lib/content";
+import { cloneEmptyContent, type ProfileContent } from "../src/lib/content";
 import {
   profileCurrent,
   profiles,
@@ -20,6 +20,7 @@ loadEnvConfig(process.cwd(), true);
 
 const DANIEL_EMAIL = "daniel.delangel03@iest.edu.mx";
 const DANIEL_SLUG = "daniel-del-angel";
+const AUTO_SLUG = "ana-torres";
 
 const emailSchema = z.string().trim().email().max(320).transform((value) => value.toLowerCase());
 
@@ -182,11 +183,28 @@ function danielContent(): ProfileContent {
   });
 }
 
+function autoStudentContent(email: string): ProfileContent {
+  return parseProfileContent({
+    ...cloneEmptyContent(),
+    fullName: "Ana Torres Ramírez",
+    career: "Ingeniería en Desarrollo de Software",
+    summary: "Estudiante enfocada en productos digitales, interfaces accesibles y trabajo colaborativo. Comparto proyectos académicos y aprendizajes en evolución.",
+    contact: { email, phone: "", location: "Tampico, Tamaulipas" },
+    education: [{ institution: "Universidad IEST Anáhuac", program: "Ingeniería en Desarrollo de Software", period: "2024 a la actualidad" }],
+    skills: [{ category: "Tecnologías", items: ["TypeScript", "React", "PostgreSQL", "Figma"] }],
+    projects: [{ title: "Agenda universitaria", role: "Diseño y desarrollo", year: "2026", description: "Proyecto académico para centralizar eventos y avisos estudiantiles.", technologies: "Next.js · PostgreSQL", url: "", academic: true }],
+    links: [{ label: "LinkedIn", url: "https://www.linkedin.com" }],
+    pdfTemplate: "modern",
+  });
+}
+
 async function seed() {
   const databaseUrl = requiredEnvironment("DATABASE_URL");
   const adminEmail = emailSchema.parse(requiredEnvironment("SEED_ADMIN_EMAIL"));
   const adminPassword = passwordSchema.parse(requiredEnvironment("SEED_ADMIN_PASSWORD"));
   const studentPassword = passwordSchema.parse(requiredEnvironment("SEED_STUDENT_PASSWORD"));
+  const autoStudentEmail = emailSchema.parse(requiredEnvironment("SEED_AUTO_STUDENT_EMAIL"));
+  const autoStudentPassword = passwordSchema.parse(requiredEnvironment("SEED_AUTO_STUDENT_PASSWORD"));
 
   if (adminEmail === DANIEL_EMAIL) {
     throw new Error("SEED_ADMIN_EMAIL no puede ser el correo del estudiante inicial.");
@@ -341,6 +359,65 @@ async function seed() {
       });
     }
     created.push("snapshots publicado y borrador de Daniel");
+    });
+
+    await db.transaction(async (tx) => {
+      const [existingStudent] = await tx
+        .select({ id: users.id, role: users.role })
+        .from(users)
+        .where(eq(users.email, autoStudentEmail))
+        .limit(1);
+      if (existingStudent && existingStudent.role !== "student") {
+        throw new Error(`La cuenta ${autoStudentEmail} ya existe y no tiene rol de estudiante.`);
+      }
+
+      const userId = existingStudent?.id ?? randomUUID();
+      if (!existingStudent) {
+        await tx.insert(users).values({
+          id: userId,
+          email: autoStudentEmail,
+          passwordHash: await bcrypt.hash(autoStudentPassword, 12),
+          role: "student",
+          isActive: true,
+        });
+        created.push("estudiante auto-registro Ana");
+      } else {
+        preserved.push("estudiante auto-registro Ana");
+      }
+
+      const [byUser] = await tx.select({ id: profiles.id, slug: profiles.slug }).from(profiles).where(eq(profiles.userId, userId)).limit(1);
+      const [bySlug] = await tx.select({ id: profiles.id, userId: profiles.userId }).from(profiles).where(eq(profiles.slug, AUTO_SLUG)).limit(1);
+      if (byUser && byUser.slug !== AUTO_SLUG) throw new Error(`El estudiante auto ya tiene el slug ${byUser.slug}.`);
+      if (bySlug && bySlug.userId !== userId) throw new Error(`El slug ${AUTO_SLUG} ya pertenece a otra cuenta.`);
+
+      const profileId = byUser?.id ?? bySlug?.id ?? randomUUID();
+      if (!byUser && !bySlug) {
+        await tx.insert(profiles).values({ id: profileId, userId, slug: AUTO_SLUG, origin: "auto" });
+        created.push("perfil auto de Ana");
+      } else {
+        await tx.update(profiles).set({ origin: "auto", updatedAt: new Date() }).where(eq(profiles.id, profileId));
+      }
+
+      const [current] = await tx.select().from(profileCurrent).where(eq(profileCurrent.profileId, profileId)).limit(1);
+      if (current?.draftVersionId || current?.publishedVersionId) {
+        preserved.push("snapshots de Ana");
+        return;
+      }
+      const [latest] = await tx.select({ sequence: profileVersions.sequence }).from(profileVersions).where(eq(profileVersions.profileId, profileId)).orderBy(desc(profileVersions.sequence)).limit(1);
+      const content = autoStudentContent(autoStudentEmail);
+      const publishedId = randomUUID();
+      const draftId = randomUUID();
+      const sequence = (latest?.sequence ?? 0) + 1;
+      await tx.insert(profileVersions).values([
+        { id: publishedId, profileId, sequence, kind: "published", content, contentHash: contentHash(content), sourceVersionId: null, createdBy: userId, publishedAt: new Date() },
+        { id: draftId, profileId, sequence: sequence + 1, kind: "draft", content, contentHash: contentHash(content), sourceVersionId: publishedId, createdBy: userId, publishedAt: null },
+      ]);
+      if (current) {
+        await tx.update(profileCurrent).set({ draftVersionId: draftId, publishedVersionId: publishedId, updatedAt: new Date() }).where(eq(profileCurrent.profileId, profileId));
+      } else {
+        await tx.insert(profileCurrent).values({ profileId, draftVersionId: draftId, publishedVersionId: publishedId });
+      }
+      created.push("snapshots publicado y borrador de Ana");
     });
 
   } finally {
