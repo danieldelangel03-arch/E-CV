@@ -27,6 +27,7 @@ type ProfileViewProps = {
   content: ProfileContent;
   preview?: boolean;
   avatarUrl?: string | null;
+  profileUrl?: string;
 };
 
 function Section({
@@ -65,8 +66,8 @@ function Avatar({ content, src }: { content: ProfileContent; src?: string | null
   return <div className="profile-avatar profile-avatar--initials" aria-label={`Iniciales de ${content.fullName}`}>{initials(content.fullName)}</div>;
 }
 
-export function ProfileView({ slug, content, preview = false, avatarUrl }: ProfileViewProps) {
-  const profileUrl = publicProfileUrl(slug);
+export function ProfileView({ slug, content, preview = false, avatarUrl, profileUrl: providedProfileUrl }: ProfileViewProps) {
+  const profileUrl = providedProfileUrl ?? publicProfileUrl(slug);
   const contactItems = [
     content.contact.email ? { label: content.contact.email, href: `mailto:${content.contact.email}`, icon: <Mail size={17} /> } : null,
     content.contact.phone ? { label: content.contact.phone, href: `tel:${content.contact.phone.replace(/[^+\d]/g, "")}`, icon: <Phone size={17} /> } : null,

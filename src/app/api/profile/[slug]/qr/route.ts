@@ -1,17 +1,18 @@
 import QRCode from "qrcode";
 
 import { getPublicProfile } from "@/lib/profiles";
-import { publicProfileUrl } from "@/lib/public-url";
+import { publicOriginFromHeaders, publicProfileUrl } from "@/lib/public-url";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET(_request: Request, { params }: { params: Promise<{ slug: string }> }) {
+export async function GET(request: Request, { params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
   const profile = await getPublicProfile(slug);
   if (!profile) return new Response(null, { status: 404 });
 
-  const png = await QRCode.toBuffer(publicProfileUrl(profile.slug), {
+  const profileUrl = publicProfileUrl(profile.slug, publicOriginFromHeaders(request.headers) ?? new URL(request.url).origin);
+  const png = await QRCode.toBuffer(profileUrl, {
     type: "png",
     width: 700,
     margin: 2,
