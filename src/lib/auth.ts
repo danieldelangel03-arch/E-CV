@@ -187,9 +187,12 @@ export async function assertSameOrigin() {
   if (!origin) return;
 
   const configuredOrigin = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "");
-  const forwardedHost = requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host");
-  const forwardedProtocol = requestHeaders.get("x-forwarded-proto") ?? "http";
-  const expectedOrigin = configuredOrigin ?? (forwardedHost ? `${forwardedProtocol}://${forwardedHost}` : "");
+  const forwardedHost = (requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host"))?.split(",")[0]?.trim();
+  const forwardedProtocol = requestHeaders.get("x-forwarded-proto")?.split(",")[0]?.trim() ?? "http";
+  // En Vercel el host reenviado representa el dominio que atendió este POST.
+  // Se prioriza sobre la URL canónica, que puede estar desactualizada o ser
+  // distinta entre producción y los deployments de preview.
+  const expectedOrigin = forwardedHost ? `${forwardedProtocol}://${forwardedHost}` : configuredOrigin;
 
   if (!expectedOrigin || new URL(origin).origin !== new URL(expectedOrigin).origin) {
     throw new AuthorizationError("Solicitud rechazada por origen no válido.");
