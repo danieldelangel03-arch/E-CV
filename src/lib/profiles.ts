@@ -610,13 +610,22 @@ export async function deleteStudent(input: { userId: string; actor: CurrentUser 
 
   await getDb().transaction(async (tx) => {
     await tx.delete(sessions).where(eq(sessions.userId, student.id));
-    await tx.delete(users).where(eq(users.id, student.id));
-  });
-  await saveAudit({
-    actorUserId: input.actor.id,
-    action: "student.deleted",
-    subjectEmail: student.email,
-    subjectSlug: student.slug,
+    const [deletedUser] = await tx
+      .delete(users)
+      .where(eq(users.id, student.id))
+      .returning({ id: users.id });
+
+    if (!deletedUser) throw new Error("La cuenta ya no existe.");
+
+    // La auditoría forma parte de la misma transacción: o se borra todo y se
+    // registra la operación, o no se modifica nada.
+    await tx.insert(auditLogs).values({
+      id: randomUUID(),
+      actorUserId: input.actor.id,
+      action: "student.deleted",
+      subjectEmail: student.email,
+      subjectSlug: student.slug,
+    });
   });
 }
 

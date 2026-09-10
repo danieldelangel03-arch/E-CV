@@ -12,6 +12,8 @@ function refreshAdmin() {
   revalidatePath("/admin");
 }
 
+export type DeleteStudentState = { error?: string };
+
 export async function createStudentAction(formData: FormData) {
   await assertSameOrigin();
   const actor = await requireAdmin();
@@ -45,11 +47,23 @@ export async function resetStudentPasswordAction(formData: FormData) {
   redirect("/admin?notice=password-reset");
 }
 
-export async function deleteStudentAction(formData: FormData) {
-  await assertSameOrigin();
-  const actor = await requireAdmin();
-  const userId = accountIdSchema.parse(formData.get("userId"));
-  await deleteStudent({ userId, actor });
+export async function deleteStudentAction(
+  _previousState: DeleteStudentState,
+  formData: FormData,
+): Promise<DeleteStudentState> {
+  try {
+    await assertSameOrigin();
+    const actor = await requireAdmin();
+    const userId = accountIdSchema.parse(formData.get("userId"));
+    await deleteStudent({ userId, actor });
+  } catch (error) {
+    const details = error instanceof Error
+      ? { name: error.name, message: error.message, stack: error.stack }
+      : { error };
+    console.error("[admin.delete-student] No se pudo eliminar la cuenta", details);
+    return { error: "No se pudo eliminar la cuenta. No se realizó ningún cambio; inténtalo de nuevo." };
+  }
+
   refreshAdmin();
   redirect("/admin?notice=deleted");
 }
