@@ -15,6 +15,13 @@
       "when": 1788929639339,
       "tag": "0001_legal_centennial",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1789000000000,
+      "tag": "0002_allow_fk_snapshot_cleanup",
+      "breakpoints": true
     }
   ]
 }
